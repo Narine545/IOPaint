@@ -17,6 +17,8 @@ import warnings
 
 warnings.simplefilter("ignore", UserWarning)
 
+__version__ = "1.7.0"
+
 
 def fix_window_pytorch():
     # copy from: https://github.com/comfyanonymous/ComfyUI/blob/5cbaa9e07c97296b536f240688f5a19300ecf30d/fix_torch.py#L4

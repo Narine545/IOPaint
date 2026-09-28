@@ -15,6 +15,14 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 
+def read_version() -> str:
+    # single source of truth: iopaint/__init__.py
+    for line in Path("iopaint/__init__.py").read_text(encoding="utf-8").splitlines():
+        if line.startswith("__version__"):
+            return line.split("=")[1].strip().strip('"').strip("'")
+    raise RuntimeError("version not found")
+
+
 def load_requirements(requirements_file_name="requirements.txt"):
     requires = []
     with open(requirements_file_name, encoding="utf-8") as f:
@@ -36,7 +44,7 @@ EXTRAS["all"] = sorted({dep for deps in EXTRAS.values() for dep in deps})
 # https://setuptools.readthedocs.io/en/latest/setuptools.html#including-data-files
 setuptools.setup(
     name="IOPaint",
-    version="1.7.0",
+    version=read_version(),
     author="PanicByte",
     author_email="cwq1913@gmail.com",
     description="Image inpainting, outpainting tool powered by SOTA AI Model",

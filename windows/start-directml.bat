@@ -15,8 +15,6 @@ if not exist "%PY%" (
 
 call "%~dp0settings.cmd"
 
-set "XDG_CACHE_HOME=%IOPAINT_MODEL_DIR%"
-set "U2NET_HOME=%IOPAINT_MODEL_DIR%"
 if not exist "%IOPAINT_MODEL_DIR%" mkdir "%IOPAINT_MODEL_DIR%"
 
 rem ---- make sure the DirectML build of onnxruntime is installed -----------
@@ -54,6 +52,7 @@ echo.
     --host 127.0.0.1 ^
     --cpu-threads %IOPAINT_CPU_THREADS% ^
     --model-dir "%IOPAINT_MODEL_DIR%" ^
+    --save-policy %IOPAINT_SAVE_POLICY% ^
     --enable-remove-bg ^
     --remove-bg-model %IOPAINT_REMOVE_BG_MODEL% ^
     --remove-bg-device directml ^

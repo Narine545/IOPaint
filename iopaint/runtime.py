@@ -97,11 +97,13 @@ def check_device(device: Device) -> Device:
 
 
 def setup_model_dir(model_dir: Path):
-    model_dir = model_dir.expanduser().absolute()
-    logger.info(f"Model directory: {model_dir}")
-    os.environ["U2NET_HOME"] = str(model_dir)
-    os.environ["XDG_CACHE_HOME"] = str(model_dir)
-    if not model_dir.exists():
-        logger.info(f"Create model directory: {model_dir}")
-        model_dir.mkdir(exist_ok=True, parents=True)
+    """Point every cache (torch hub, HuggingFace, rembg) inside `model_dir`.
+
+    Keeping them together means the user always knows what IOPaint wrote,
+    can move it to another drive and can delete it in one go.
+    """
+    from iopaint.storage import setup_data_dirs
+
+    model_dir = setup_data_dirs(model_dir)
+    logger.info(f"Model/data directory: {model_dir}")
     return model_dir

@@ -56,6 +56,9 @@ type CropperState = {
 
 export type Settings = {
   model: ModelInfo
+  // ask for the folder/name with the OS "Save as" dialog instead of dumping
+  // the file into the browser download folder
+  askBeforeSave: boolean
   enableDownloadMask: boolean
   enableManualInpainting: boolean
   enableUploadMask: boolean
@@ -146,6 +149,9 @@ type AppState = {
   imageWidth: number
   isInpainting: boolean
   isPluginRunning: boolean
+  // name of the model/plugin that produced the latest render, used for the
+  // file name and the embedded metadata
+  lastTool: string
   isAdjustingMask: boolean
   windowSize: Size
   editorState: EditorState
@@ -244,6 +250,7 @@ const defaultValues: AppState = {
   imageWidth: 0,
   isInpainting: false,
   isPluginRunning: false,
+  lastTool: "",
   isAdjustingMask: false,
   disableShortCuts: false,
 
@@ -330,6 +337,7 @@ const defaultValues: AppState = {
     showCropper: false,
     showExtender: false,
     extenderDirection: ExtenderDirection.xy,
+    askBeforeSave: true,
     enableDownloadMask: false,
     enableManualInpainting: false,
     enableUploadMask: false,
@@ -533,10 +541,13 @@ export const useStore = createWithEqualityFn<AppState & AppAction>()(
             paintByExampleFile
           )
 
-          const { blob, seed } = res
+          const { blob, seed, tool } = res
           if (seed) {
             get().setSeed(parseInt(seed, 10))
           }
+          set((state) => {
+            state.lastTool = tool || settings.model.name
+          })
           const newRender = new Image()
           await loadImage(newRender, blob)
           const newRenders = [...renders, newRender]
@@ -585,7 +596,12 @@ export const useStore = createWithEqualityFn<AppState & AppAction>()(
             params.alphaMatting,
             params.removeColorSpill
           )
-          const { blob } = res
+          const { blob, tool } = res
+          if (!genMask) {
+            set((state) => {
+              state.lastTool = tool || pluginName
+            })
+          }
 
           if (!genMask) {
             const newRender = new Image()

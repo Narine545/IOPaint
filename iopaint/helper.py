@@ -139,19 +139,64 @@ def numpy_to_bytes(image_numpy: np.ndarray, ext: str) -> bytes:
     return image_bytes
 
 
-def pil_to_bytes(pil_img, ext: str, quality: int = 95, infos={}) -> bytes:
-    with io.BytesIO() as output:
-        kwargs = {k: v for k, v in infos.items() if v is not None}
-        if ext == "jpg":
-            ext = "jpeg"
-        if "png" == ext.lower() and "parameters" in kwargs:
-            pnginfo_data = PngImagePlugin.PngInfo()
-            pnginfo_data.add_text("parameters", kwargs["parameters"])
-            kwargs["pnginfo"] = pnginfo_data
+# keys that PIL's save() understands directly, everything else is treated as
+# text metadata (and written as PNG tEXt / EXIF Software)
+_PIL_SAVE_KWARGS = {
+    "exif",
+    "pnginfo",
+    "icc_profile",
+    "dpi",
+    "compress_level",
+    "optimize",
+    "progressive",
+    "subsampling",
+    "transparency",
+}
 
-        pil_img.save(output, format=ext, quality=quality, **kwargs)
-        image_bytes = output.getvalue()
-    return image_bytes
+
+def pil_to_bytes(pil_img, ext: str, quality: int = 95, infos={}) -> bytes:
+    kwargs = {k: v for k, v in (infos or {}).items() if v is not None}
+    ext = "jpeg" if ext.lower() in ("jpg", "jpeg") else ext.lower()
+
+    save_kwargs = {k: v for k, v in kwargs.items() if k in _PIL_SAVE_KWARGS}
+    text_meta = {
+        k: str(v)
+        for k, v in kwargs.items()
+        if k not in _PIL_SAVE_KWARGS and isinstance(v, (str, int, float))
+    }
+
+    if ext == "png" and text_meta:
+        pnginfo_data = PngImagePlugin.PngInfo()
+        for key, value in text_meta.items():
+            try:
+                pnginfo_data.add_text(key, value)
+            except Exception:
+                pass
+        save_kwargs["pnginfo"] = pnginfo_data
+    elif ext == "jpeg" and text_meta.get("Software"):
+        try:
+            import piexif
+
+            exif_bytes = save_kwargs.get("exif")
+            exif_dict = (
+                piexif.load(exif_bytes)
+                if exif_bytes
+                else {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}, "thumbnail": None}
+            )
+            exif_dict.setdefault("0th", {})[piexif.ImageIFD.Software] = text_meta[
+                "Software"
+            ].encode("utf-8", "ignore")
+            save_kwargs["exif"] = piexif.dump(exif_dict)
+        except Exception:
+            pass
+
+    if ext == "jpeg" and pil_img.mode in ("RGBA", "LA", "P"):
+        # JPEG cannot store transparency, keep the data instead of crashing
+        pil_img = pil_img.convert("RGB")
+
+    with io.BytesIO() as output:
+        pil_img.save(output, format=ext, quality=quality, **save_kwargs)
+        return output.getvalue()
 
 
 def load_img(img_bytes, gray: bool = False, return_info: bool = False):

@@ -254,3 +254,97 @@ export const convertToBase64 = (fileOrBlob: File | Blob): Promise<string> => {
     reader.readAsDataURL(fileOrBlob)
   })
 }
+
+
+const MIME_TO_EXT: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/bmp": "bmp",
+  "image/tiff": "tiff",
+}
+
+/** File extension that matches the real image data, not the original name. */
+export function extFromMime(mimeType: string, fallback = "png") {
+  return MIME_TO_EXT[(mimeType || "").toLowerCase()] ?? fallback
+}
+
+function sanitizeNamePart(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[/\\\s]+/g, "-")
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "")
+    .slice(0, 40)
+}
+
+/**
+ * photo.jpg + "RemoveBG-isnet-general-use" + v2  ->
+ * photo_removebg-isnet-general-use_v2.png
+ */
+export function buildResultFileName(
+  originalName: string,
+  tool: string,
+  mimeType: string,
+  version: number
+) {
+  const stem = (originalName || "image").replace(/\.[^/.]+$/, "") || "image"
+  const parts = [stem]
+  const toolPart = sanitizeNamePart(tool || "")
+  if (toolPart) {
+    parts.push(toolPart)
+  }
+  if (version > 1) {
+    parts.push(`v${version}`)
+  }
+  return `${parts.join("_")}.${extFromMime(mimeType)}`
+}
+
+export function supportsSavePicker() {
+  return typeof (window as any).showSaveFilePicker === "function"
+}
+
+/**
+ * Real "Save as" dialog (folder is chosen by the user and remembered by the
+ * browser, overwriting asks for confirmation). Falls back to a plain download
+ * on browsers without the File System Access API (Firefox).
+ * Returns the file name, or null if the user cancelled.
+ */
+export async function saveBlobAs(
+  blob: Blob,
+  suggestedName: string
+): Promise<string | null> {
+  const mimeType = blob.type || "image/png"
+  const ext = extFromMime(mimeType)
+
+  if (supportsSavePicker()) {
+    try {
+      const handle = await (window as any).showSaveFilePicker({
+        suggestedName,
+        startIn: "pictures",
+        types: [
+          {
+            description: `${ext.toUpperCase()} image`,
+            accept: { [mimeType]: [`.${ext}`] },
+          },
+        ],
+      })
+      const writable = await handle.createWritable()
+      await writable.write(blob)
+      await writable.close()
+      return handle.name ?? suggestedName
+    } catch (e: any) {
+      if (e?.name === "AbortError") {
+        return null
+      }
+      // fall through to the classic download
+    }
+  }
+
+  const url = URL.createObjectURL(blob)
+  downloadImage(url, suggestedName)
+  setTimeout(() => URL.revokeObjectURL(url), 10000)
+  return suggestedName
+}

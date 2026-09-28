@@ -77,17 +77,30 @@ if errorlevel 1 (
     exit /b 1
 )
 
-rem ------------------------------------------------------- model download
+rem --------------------------------------------------- data directory
 call "%~dp0settings.cmd"
-set "XDG_CACHE_HOME=%IOPAINT_MODEL_DIR%"
-set "U2NET_HOME=%IOPAINT_MODEL_DIR%"
+
+echo.
+echo Models and caches need about 2-4 GB of free space.
+echo Current location: %IOPAINT_MODEL_DIR%
+set "NEWDIR="
+set /p "NEWDIR=Press Enter to keep it, or type another folder (e.g. D:\IOPaintData): "
+if not "%NEWDIR%"=="" (
+    set "IOPAINT_MODEL_DIR=%NEWDIR%"
+    powershell -NoProfile -Command ^
+      "$f='%~dp0settings.cmd'; $t=Get-Content -Raw -Encoding UTF8 $f;" ^
+      "$t=[regex]::Replace($t,'(?m)^set \"IOPAINT_MODEL_DIR=.*$','set \"IOPAINT_MODEL_DIR=%NEWDIR%\"');" ^
+      "Set-Content -Encoding UTF8 -NoNewline $f $t"
+    echo Saved to windows\settings.cmd
+)
+
 if not exist "%IOPAINT_MODEL_DIR%" mkdir "%IOPAINT_MODEL_DIR%"
 
 echo [5/6] Downloading the erase model (%IOPAINT_MODEL%) ...
 "%PY%" -m iopaint download --model %IOPAINT_MODEL% --model-dir "%IOPAINT_MODEL_DIR%"
 
 echo [6/6] Downloading the background removal model (%IOPAINT_REMOVE_BG_MODEL%) ...
-"%PY%" -c "import os; os.environ.setdefault('U2NET_HOME', r'%IOPAINT_MODEL_DIR%'); from rembg import new_session; new_session('%IOPAINT_REMOVE_BG_MODEL%'); print('ok')" 2>nul
+"%PY%" -c "import os; os.environ['U2NET_HOME']=r'%IOPAINT_MODEL_DIR%\rembg'; from rembg import new_session; new_session('%IOPAINT_REMOVE_BG_MODEL%'); print('ok')" 2>nul
 if errorlevel 1 echo      (the model will be downloaded on first use)
 
 echo.

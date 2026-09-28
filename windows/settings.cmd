@@ -31,5 +31,11 @@ set "IOPAINT_MODEL_DIR=%USERPROFILE%\.cache\iopaint-models"
 @rem Leave empty to disable.
 set "IOPAINT_OUTPUT_DIR=%USERPROFILE%\Pictures\IOPaint"
 
+@rem What to do when the output file already exists:
+@rem   unique    - add a counter, never overwrite (recommended)
+@rem   timestamp - append date+time
+@rem   overwrite - replace the old file
+set "IOPAINT_SAVE_POLICY=unique"
+
 @rem Open the browser automatically (true/false)
 set "IOPAINT_INBROWSER=true"

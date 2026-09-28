@@ -4,7 +4,9 @@ import {
   ModelInfo,
   PowerPaintTask,
   Rect,
+  SaveImageResult,
   ServerConfig,
+  StorageInfo,
 } from "@/lib/types"
 import { Settings } from "@/lib/states"
 import { convertToBase64, srcToFile } from "@/lib/utils"
@@ -97,6 +99,8 @@ export default async function inpaint(
     return {
       blob: URL.createObjectURL(blob),
       seed: res.headers.get("X-Seed"),
+      tool: res.headers.get("X-IOPaint-Tool") ?? "",
+      mimeType: blob.type || "image/png",
     }
   }
   throw await throwErrors(res)
@@ -151,7 +155,11 @@ export async function runPlugin(
   })
   if (res.ok) {
     const blob = await res.blob()
-    return { blob: URL.createObjectURL(blob) }
+    return {
+      blob: URL.createObjectURL(blob),
+      tool: res.headers.get("X-IOPaint-Tool") ?? name,
+      mimeType: blob.type || "image/png",
+    }
   }
   throw await throwErrors(res)
 }
@@ -199,23 +207,40 @@ export async function getMedias(tab: string): Promise<Filename[]> {
 export async function downloadToOutput(
   image: HTMLImageElement,
   filename: string,
-  mimeType: string
-) {
+  mimeType: string,
+  tool?: string,
+  version?: number
+): Promise<SaveImageResult> {
   const file = await srcToFile(image.src, filename, mimeType)
   const fd = new FormData()
   fd.append("file", file)
+  fd.append("tool", tool ?? "")
+  fd.append("version", String(version ?? 0))
 
-  try {
-    const res = await fetch(`${API_ENDPOINT}/save_image`, {
-      method: "POST",
-      body: fd,
-    })
-    if (!res.ok) {
-      throw await throwErrors(res)
-    }
-  } catch (error) {
-    throw new Error(`Something went wrong: ${error}`)
+  const res = await fetch(`${API_ENDPOINT}/save_image`, {
+    method: "POST",
+    body: fd,
+  })
+  if (!res.ok) {
+    throw await throwErrors(res)
   }
+  return (await res.json()) as SaveImageResult
+}
+
+export async function getStorageInfo(): Promise<StorageInfo> {
+  const res = await api.get("/storage")
+  return res.data
+}
+
+export async function cleanupStorage(
+  targets: string[],
+  dryRun = false
+): Promise<{ freed_human: string; errors: string[] }> {
+  const res = await api.post("/storage/cleanup", {
+    targets,
+    dry_run: dryRun,
+  })
+  return res.data
 }
 
 export async function getGenInfo(file: File): Promise<GenInfo> {

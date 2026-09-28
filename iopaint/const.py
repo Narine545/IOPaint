@@ -160,3 +160,16 @@ Remove the old background colour from semi-transparent edge pixels. Strongly
 recommended when cutting a subject out of a white/bright background, it kills
 the white halo.
 """
+
+
+SAVE_POLICY_HELP = """
+What happens when the target file already exists:
+'unique'    - add a counter, never overwrite (default);
+'timestamp' - append a timestamp;
+'overwrite' - replace the existing file.
+"""
+
+SAVE_METADATA_HELP = """
+Embed IOPaint version, model/plugin name and creation time into the saved
+image (PNG text chunk / JPEG EXIF Software tag).
+"""

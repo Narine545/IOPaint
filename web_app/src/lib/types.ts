@@ -72,6 +72,33 @@ export enum AlphaMattingMethod {
   QUALITY = "quality",
 }
 
+export interface StorageItem {
+  name: string
+  description: string
+  path: string
+  exists: boolean
+  size: number
+  size_human: string
+  safe_to_delete: boolean
+}
+
+export interface StorageInfo {
+  data_dir: string
+  output_dir: string
+  save_policy: string
+  total_size: number
+  total_size_human: string
+  items: StorageItem[]
+}
+
+export interface SaveImageResult {
+  path: string
+  directory: string
+  filename: string
+  size: number
+  replaced: boolean
+}
+
 export interface PluginParams {
   upscale: number
   alphaMatting?: AlphaMattingMethod

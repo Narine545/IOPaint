@@ -1,7 +1,7 @@
 import random
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Literal, List
+from typing import Any, Dict, List, Literal, Optional
 
 from loguru import logger
 
@@ -274,6 +274,16 @@ class ApiConfig(BaseModel):
     input: Optional[Path]
     mask_dir: Optional[Path]
     output_dir: Optional[Path]
+    model_dir: Path = Field(
+        Path("~/.cache"), description="Directory holding models and caches"
+    )
+    save_policy: str = Field(
+        "unique",
+        description="What to do when the target file exists: unique/timestamp/overwrite",
+    )
+    save_metadata: bool = Field(
+        True, description="Embed IOPaint version/model info into saved images"
+    )
     quality: int
     enable_interactive_seg: bool
     interactive_seg_model: InteractiveSegModel
@@ -525,6 +535,49 @@ class ServerConfigResponse(BaseModel):
     disableModelSwitch: bool
     isDesktop: bool
     samplers: List[str]
+    savePolicy: str = "unique"
+    outputDir: str = ""
+    dataDir: str = ""
+
+
+class SaveImageResponse(BaseModel):
+    path: str
+    directory: str
+    filename: str
+    size: int
+    replaced: bool = False
+
+
+class StorageItem(BaseModel):
+    name: str
+    description: str
+    path: str
+    exists: bool
+    size: int
+    size_human: str
+    safe_to_delete: bool
+
+
+class StorageResponse(BaseModel):
+    data_dir: str
+    output_dir: str
+    save_policy: str
+    total_size: int
+    total_size_human: str
+    items: List[StorageItem]
+
+
+class StorageCleanupRequest(BaseModel):
+    targets: List[str] = Field(default_factory=list)
+    dry_run: bool = False
+
+
+class StorageCleanupResponse(BaseModel):
+    removed: List[Dict[str, Any]] = Field(default_factory=list)
+    freed: int = 0
+    freed_human: str = "0 B"
+    errors: List[str] = Field(default_factory=list)
+    dry_run: bool = False
 
 
 class SwitchModelRequest(BaseModel):

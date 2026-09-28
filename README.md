@@ -50,6 +50,12 @@
 * **тюнинг CPU**: `--cpu-threads` с автоопределением физических ядер;
 * **DirectML**: `--remove-bg-device directml` — удаление фона на Radeon/Intel iGPU;
 * **пакетный режим**: `iopaint remove-bg --image ./in --output ./out`;
+* **нормальное сохранение**: расширение по реальной картинке (прозрачный
+  результат — всегда PNG), имя вида `photo_removebg-isnet-general-use_v2.png`,
+  диалог «Сохранить как» с выбором папки и защита от молчаливой перезаписи;
+* **контроль места на диске**: все кэши в одной папке, `iopaint paths` /
+  `iopaint clean`, вкладка **Files & Storage** в настройках,
+  `windows\show-paths.bat` и `windows\clean-cache.bat`;
 * `.bat`-скрипты установки, запуска и обновления в папке `windows/`;
 * обновлённые зависимости (Python 3.10–3.13, Pillow 10+, Pydantic 2.12+),
   быстрые тесты без скачивания моделей и GitHub Actions.

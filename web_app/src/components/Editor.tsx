@@ -11,14 +11,15 @@ import { downloadToOutput, runPlugin } from "@/lib/api"
 import { IconButton } from "@/components/ui/button"
 import {
   askWritePermission,
+  buildResultFileName,
   cn,
   copyCanvasImage,
-  downloadImage,
   drawLines,
   generateMask,
   isMidClick,
   isRightClick,
   mouseXY,
+  saveBlobAs,
   srcToFile,
 } from "@/lib/utils"
 import { Eraser, Eye, Redo, Undo, Expand, Download } from "lucide-react"
@@ -72,6 +73,7 @@ export default function Editor(props: EditorProps) {
     isCropperExtenderResizing,
     decreaseBaseBrushSize,
     increaseBaseBrushSize,
+    lastTool,
   ] = useStore((state) => [
     state.disableShortCuts,
     state.windowSize,
@@ -97,6 +99,7 @@ export default function Editor(props: EditorProps) {
     state.isCropperExtenderResizing,
     state.decreaseBaseBrushSize,
     state.increaseBaseBrushSize,
+    state.lastTool,
   ])
   const baseBrushSize = useStore((state) => state.editorState.baseBrushSize)
   const brushSize = useStore((state) => state.getBrushSize())
@@ -528,15 +531,31 @@ export default function Editor(props: EditorProps) {
     if (file === undefined) {
       return
     }
-    if (enableAutoSaving && renders.length > 0) {
+    const curRender = renders[renders.length - 1]
+    if (!curRender) {
+      toast({ description: "Nothing to save yet" })
+      return
+    }
+
+    // the result may be a PNG even when the source was a JPEG (e.g. after
+    // background removal), so ask the blob itself what it is
+    const blob = await (await fetch(curRender.currentSrc)).blob()
+    const version = renders.length
+    const fileName = buildResultFileName(file.name, lastTool, blob.type, version)
+
+    if (enableAutoSaving && !settings.askBeforeSave) {
       try {
-        await downloadToOutput(
-          renders[renders.length - 1],
+        const saved = await downloadToOutput(
+          curRender,
           file.name,
-          file.type
+          blob.type,
+          lastTool,
+          version
         )
         toast({
-          description: "Save image success",
+          description: saved.replaced
+            ? `Replaced ${saved.path}`
+            : `Saved to ${saved.path}`,
         })
       } catch (e: any) {
         toast({
@@ -548,23 +567,32 @@ export default function Editor(props: EditorProps) {
       return
     }
 
-    // TODO: download to output directory
-    const name = file.name.replace(/(\.[\w\d_-]+)$/i, "_cleanup$1")
-    const curRender = renders[renders.length - 1]
-    downloadImage(curRender.currentSrc, name)
-    if (settings.enableDownloadMask) {
-      let maskFileName = file.name.replace(/(\.[\w\d_-]+)$/i, "_mask$1")
-      maskFileName = maskFileName.replace(/\.[^/.]+$/, ".jpg")
+    try {
+      const savedName = await saveBlobAs(blob, fileName)
+      if (savedName === null) {
+        return // user cancelled the dialog
+      }
+      toast({ description: `Saved as ${savedName}` })
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Save failed",
+        description: e.message ? e.message : e.toString(),
+      })
+      return
+    }
 
+    if (settings.enableDownloadMask) {
       const maskCanvas = generateMask(imageWidth, imageHeight, lineGroups)
-      // Create a link
-      const aDownloadLink = document.createElement("a")
-      // Add the name of the file to the link
-      aDownloadLink.download = maskFileName
-      // Attach the data to the link
-      aDownloadLink.href = maskCanvas.toDataURL("image/jpeg")
-      // Get the code to click the download link
-      aDownloadLink.click()
+      const maskBlob: Blob | null = await new Promise((resolve) =>
+        maskCanvas.toBlob(resolve, "image/png")
+      )
+      if (maskBlob) {
+        await saveBlobAs(
+          maskBlob,
+          buildResultFileName(file.name, "mask", "image/png", version)
+        )
+      }
     }
   }, [
     file,
@@ -574,6 +602,8 @@ export default function Editor(props: EditorProps) {
     imageHeight,
     imageWidth,
     lineGroups,
+    lastTool,
+    toast,
   ])
 
   useHotKey("meta+s,ctrl+s", download)

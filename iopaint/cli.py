@@ -106,6 +106,99 @@ def run(
     batch_inpaint(model, device, image, mask, output, config, concat)
 
 
+@typer_app.command(name="paths", help="Show where IOPaint stores models and results")
+def show_paths(
+    model_dir: Path = Option(
+        DEFAULT_MODEL_DIR, help=MODEL_DIR_HELP, file_okay=False, callback=setup_model_dir
+    ),
+    output_dir: Optional[Path] = Option(None, help=OUTPUT_DIR_HELP, file_okay=False),
+):
+    from rich.console import Console
+    from rich.table import Table
+
+    from iopaint.storage import storage_paths
+
+    paths = storage_paths(model_dir, output_dir)
+    total = paths.pop("_total")
+
+    table = Table(title="IOPaint storage")
+    table.add_column("What")
+    table.add_column("Size", justify="right")
+    table.add_column("Path", overflow="fold")
+    for item in paths.values():
+        table.add_row(
+            item["description"],
+            item["size_human"] if item["exists"] else "-",
+            item["path"] or "(not configured)",
+        )
+    table.add_row("[bold]Total cache[/bold]", f"[bold]{total['size_human']}[/bold]", total["path"])
+
+    console = Console()
+    console.print(table)
+    console.print(
+        "Delete caches with:  iopaint clean --all   "
+        "(add --dry-run to preview, results are never deleted unless --outputs)"
+    )
+
+
+@typer_app.command(name="clean", help="Delete models/caches that IOPaint downloaded")
+def clean(
+    model_dir: Path = Option(
+        DEFAULT_MODEL_DIR, help=MODEL_DIR_HELP, file_okay=False, callback=setup_model_dir
+    ),
+    output_dir: Optional[Path] = Option(None, help=OUTPUT_DIR_HELP, file_okay=False),
+    erase_models: bool = Option(False, help="Delete erase models (lama/mat/...)"),
+    plugin_models: bool = Option(False, help="Delete plugin models (rembg/sam/...)"),
+    huggingface: bool = Option(False, help="Delete the HuggingFace cache"),
+    thumbnails: bool = Option(False, help="Delete file manager thumbnails"),
+    outputs: bool = Option(False, help="Delete your saved results (careful!)"),
+    all: bool = Option(False, "--all", help="All caches (not your results)"),
+    dry_run: bool = Option(False, help="Only show what would be deleted"),
+    yes: bool = Option(False, "--yes", "-y", help="Do not ask for confirmation"),
+):
+    from rich.console import Console
+
+    from iopaint.storage import cleanup, storage_paths
+
+    targets = []
+    if all:
+        targets = ["erase_models", "plugin_models", "huggingface", "thumbnails"]
+    else:
+        if erase_models:
+            targets.append("erase_models")
+        if plugin_models:
+            targets.append("plugin_models")
+        if huggingface:
+            targets.append("huggingface")
+        if thumbnails:
+            targets.append("thumbnails")
+    if outputs:
+        targets.append("outputs")
+
+    console = Console()
+    if not targets:
+        console.print(
+            "Nothing selected. Use --all, or one of "
+            "--erase-models/--plugin-models/--huggingface/--thumbnails/--outputs"
+        )
+        raise typer.Exit(code=1)
+
+    paths = storage_paths(model_dir, output_dir)
+    console.print("About to delete:")
+    for target in targets:
+        item = paths[target]
+        console.print(f"  - {item['description']}: {item['size_human']}  {item['path']}")
+
+    if not dry_run and not yes:
+        typer.confirm("Continue?", abort=True)
+
+    result = cleanup(model_dir, targets, output_dir=output_dir, dry_run=dry_run)
+    verb = "Would free" if dry_run else "Freed"
+    console.print(f"{verb} {result['freed_human']}")
+    for error in result["errors"]:
+        console.print(f"[red]{error}[/red]")
+
+
 @typer_app.command(
     name="remove-bg", help="Batch remove image background (writes transparent PNGs)"
 )
@@ -194,6 +287,8 @@ def start(
         None, help=OUTPUT_DIR_HELP, dir_okay=True, file_okay=False
     ),
     quality: int = Option(100, help=QUALITY_HELP),
+    save_policy: str = Option("unique", help=SAVE_POLICY_HELP),
+    save_metadata: bool = Option(True, help=SAVE_METADATA_HELP),
     enable_interactive_seg: bool = Option(False, help=INTERACTIVE_SEG_HELP),
     interactive_seg_model: InteractiveSegModel = Option(
         InteractiveSegModel.sam2_1_tiny, help=INTERACTIVE_SEG_MODEL_HELP
@@ -289,6 +384,9 @@ def start(
         input=input,
         mask_dir=mask_dir,
         output_dir=output_dir,
+        model_dir=model_dir,
+        save_policy=save_policy,
+        save_metadata=save_metadata,
         quality=quality,
         enable_interactive_seg=enable_interactive_seg,
         interactive_seg_model=interactive_seg_model,
