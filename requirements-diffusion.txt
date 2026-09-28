@@ -1,0 +1,8 @@
+# Optional: Stable Diffusion / SDXL / PowerPaint / BrushNet / AnyText support.
+# pip install -r requirements-diffusion.txt   (or: pip install "iopaint[diffusion]")
+diffusers>=0.27.2,<0.32
+transformers>=4.39.1
+accelerate
+peft>=0.7.1
+controlnet-aux==0.0.3
+timm

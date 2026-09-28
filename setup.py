@@ -15,20 +15,36 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 
-def load_requirements():
-    requirements_file_name = "requirements.txt"
+def read_version() -> str:
+    # single source of truth: iopaint/__init__.py
+    for line in Path("iopaint/__init__.py").read_text(encoding="utf-8").splitlines():
+        if line.startswith("__version__"):
+            return line.split("=")[1].strip().strip('"').strip("'")
+    raise RuntimeError("version not found")
+
+
+def load_requirements(requirements_file_name="requirements.txt"):
     requires = []
-    with open(requirements_file_name) as f:
+    with open(requirements_file_name, encoding="utf-8") as f:
         for line in f:
-            if line:
-                requires.append(line.strip())
+            line = line.strip()
+            if line and not line.startswith("#"):
+                requires.append(line)
     return requires
+
+
+EXTRAS = {
+    "diffusion": load_requirements("requirements-diffusion.txt"),
+    "plugins": load_requirements("requirements-plugins.txt"),
+    "webconfig": load_requirements("requirements-webconfig.txt"),
+}
+EXTRAS["all"] = sorted({dep for deps in EXTRAS.values() for dep in deps})
 
 
 # https://setuptools.readthedocs.io/en/latest/setuptools.html#including-data-files
 setuptools.setup(
     name="IOPaint",
-    version="1.6.0",
+    version=read_version(),
     author="PanicByte",
     author_email="cwq1913@gmail.com",
     description="Image inpainting, outpainting tool powered by SOTA AI Model",
@@ -38,16 +54,17 @@ setuptools.setup(
     packages=setuptools.find_packages("."),
     package_data={"iopaint": package_files},
     install_requires=load_requirements(),
-    python_requires=">=3.7",
+    extras_require=EXTRAS,
+    python_requires=">=3.9",
     entry_points={"console_scripts": ["iopaint=iopaint:entry_point"]},
     classifiers=[
         "License :: OSI Approved :: Apache Software License",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.7",
-        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
 )

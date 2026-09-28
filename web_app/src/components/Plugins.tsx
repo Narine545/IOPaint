@@ -2,6 +2,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -16,7 +17,7 @@ import {
   Smile,
 } from "lucide-react"
 import { useStore } from "@/lib/states"
-import { PluginInfo } from "@/lib/types"
+import { AlphaMattingMethod, PluginInfo } from "@/lib/types"
 
 export enum PluginName {
   RemoveBG = "RemoveBG",
@@ -114,6 +115,12 @@ const Plugins = () => {
 
   const renderGenImageAndMaskPlugin = (plugin: PluginInfo) => {
     const { IconClass, showName } = pluginMap[plugin.name as PluginName]
+    const run = (genMask: boolean, alphaMatting?: AlphaMattingMethod) =>
+      runRenderablePlugin(genMask, plugin.name, {
+        upscale: 1,
+        alphaMatting,
+      })
+
     return (
       <DropdownMenuSub key={plugin.name}>
         <DropdownMenuSubTrigger disabled={disabled}>
@@ -126,8 +133,22 @@ const Plugins = () => {
           <DropdownMenuItem onClick={() => onPluginClick(false, plugin.name)}>
             Remove Background
           </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => run(false, AlphaMattingMethod.FAST)}
+          >
+            Remove Background (soft edges)
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => run(false, AlphaMattingMethod.QUALITY)}
+          >
+            Remove Background (hair / best quality)
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => onPluginClick(true, plugin.name)}>
             Generate Mask
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => run(true, AlphaMattingMethod.FAST)}>
+            Generate Mask (soft edges)
           </DropdownMenuItem>
         </DropdownMenuSubContent>
       </DropdownMenuSub>

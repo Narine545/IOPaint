@@ -1,0 +1,2 @@
+# Optional: `iopaint start-web-config` GUI
+gradio>=4.21.0

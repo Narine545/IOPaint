@@ -1,7 +1,7 @@
 import random
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Literal, List
+from typing import Any, Dict, List, Literal, Optional
 
 from loguru import logger
 
@@ -166,10 +166,19 @@ class RemoveBGModel(Choices):
     birefnet_massive = "birefnet-massive"
 
 
+class AlphaMattingMethod(Choices):
+    none = "none"
+    fast = "fast"
+    quality = "quality"
+
+
 class Device(Choices):
     cpu = "cpu"
     cuda = "cuda"
     mps = "mps"
+    # DirectML: runs ONNX/torch models on any DirectX 12 GPU (AMD/Intel iGPU
+    # included) on Windows. Requires onnxruntime-directml / torch-directml.
+    directml = "directml"
 
 
 class InteractiveSegModel(Choices):
@@ -265,6 +274,16 @@ class ApiConfig(BaseModel):
     input: Optional[Path]
     mask_dir: Optional[Path]
     output_dir: Optional[Path]
+    model_dir: Path = Field(
+        Path("~/.cache"), description="Directory holding models and caches"
+    )
+    save_policy: str = Field(
+        "unique",
+        description="What to do when the target file exists: unique/timestamp/overwrite",
+    )
+    save_metadata: bool = Field(
+        True, description="Embed IOPaint version/model info into saved images"
+    )
     quality: int
     enable_interactive_seg: bool
     interactive_seg_model: InteractiveSegModel
@@ -272,6 +291,12 @@ class ApiConfig(BaseModel):
     enable_remove_bg: bool
     remove_bg_device: Device
     remove_bg_model: str
+    remove_bg_alpha_matting: AlphaMattingMethod = AlphaMattingMethod.none
+    remove_bg_fg_threshold: int = 240
+    remove_bg_bg_threshold: int = 15
+    remove_bg_erode_size: int = 8
+    remove_bg_matting_max_size: int = 1280
+    remove_bg_remove_color_spill: bool = True
     enable_anime_seg: bool
     enable_realesrgan: bool
     realesrgan_device: Device
@@ -419,7 +444,8 @@ class InpaintRequest(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_field(cls, values: "InpaintRequest"):
+    def validate_field(self) -> "InpaintRequest":
+        values = self
         if values.sd_seed == -1:
             values.sd_seed = random.randint(1, 99999999)
             logger.info(f"Generate random seed: {values.sd_seed}")
@@ -456,6 +482,24 @@ class RunPluginRequest(BaseModel):
     )
     scale: float = Field(2.0, description="Scale for upscaling")
 
+    # Background removal / alpha matting overrides. None means "use the value
+    # the server was started with".
+    alpha_matting: Optional[AlphaMattingMethod] = Field(
+        None, description="Alpha matting method: none/fast/quality"
+    )
+    fg_threshold: Optional[int] = Field(
+        None, ge=0, le=255, description="Alpha matting foreground threshold"
+    )
+    bg_threshold: Optional[int] = Field(
+        None, ge=0, le=255, description="Alpha matting background threshold"
+    )
+    erode_size: Optional[int] = Field(
+        None, ge=0, le=64, description="Alpha matting trimap erode size"
+    )
+    remove_color_spill: Optional[bool] = Field(
+        None, description="Remove the old background colour from soft edges"
+    )
+
 
 MediaTab = Literal["input", "output", "mask"]
 
@@ -478,6 +522,8 @@ class ServerConfigResponse(BaseModel):
     modelInfos: List[ModelInfo]
     removeBGModel: RemoveBGModel
     removeBGModels: List[RemoveBGModel]
+    removeBGAlphaMatting: AlphaMattingMethod = AlphaMattingMethod.none
+    alphaMattingMethods: List[str] = Field(default_factory=AlphaMattingMethod.values)
     realesrganModel: RealESRGANModel
     realesrganModels: List[RealESRGANModel]
     interactiveSegModel: InteractiveSegModel
@@ -489,6 +535,49 @@ class ServerConfigResponse(BaseModel):
     disableModelSwitch: bool
     isDesktop: bool
     samplers: List[str]
+    savePolicy: str = "unique"
+    outputDir: str = ""
+    dataDir: str = ""
+
+
+class SaveImageResponse(BaseModel):
+    path: str
+    directory: str
+    filename: str
+    size: int
+    replaced: bool = False
+
+
+class StorageItem(BaseModel):
+    name: str
+    description: str
+    path: str
+    exists: bool
+    size: int
+    size_human: str
+    safe_to_delete: bool
+
+
+class StorageResponse(BaseModel):
+    data_dir: str
+    output_dir: str
+    save_policy: str
+    total_size: int
+    total_size_human: str
+    items: List[StorageItem]
+
+
+class StorageCleanupRequest(BaseModel):
+    targets: List[str] = Field(default_factory=list)
+    dry_run: bool = False
+
+
+class StorageCleanupResponse(BaseModel):
+    removed: List[Dict[str, Any]] = Field(default_factory=list)
+    freed: int = 0
+    freed_human: str = "0 B"
+    errors: List[str] = Field(default_factory=list)
+    dry_run: bool = False
 
 
 class SwitchModelRequest(BaseModel):

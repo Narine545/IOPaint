@@ -20,8 +20,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs"
 import { useEffect, useState } from "react"
 import { cn } from "@/lib/utils"
 import { useQuery } from "@tanstack/react-query"
-import { getServerConfig, switchModel, switchPluginModel } from "@/lib/api"
-import { ModelInfo, PluginName } from "@/lib/types"
+import {
+  cleanupStorage,
+  getServerConfig,
+  getStorageInfo,
+  switchModel,
+  switchPluginModel,
+} from "@/lib/api"
+import { ModelInfo, PluginName, StorageInfo } from "@/lib/types"
 import { useStore } from "@/lib/states"
 import { ScrollArea } from "./ui/scroll-area"
 import { useToast } from "./ui/use-toast"
@@ -52,6 +58,7 @@ const formSchema = z.object({
   enableFileManager: z.boolean(),
   inputDirectory: z.string(),
   outputDirectory: z.string(),
+  askBeforeSave: z.boolean(),
   enableDownloadMask: z.boolean(),
   enableManualInpainting: z.boolean(),
   enableUploadMask: z.boolean(),
@@ -64,9 +71,10 @@ const formSchema = z.object({
 const TAB_GENERAL = "General"
 const TAB_MODEL = "Model"
 const TAB_PLUGINS = "Plugins"
+const TAB_STORAGE = "Files & Storage"
 // const TAB_FILE_MANAGER = "File Manager"
 
-const TAB_NAMES = [TAB_MODEL, TAB_GENERAL, TAB_PLUGINS]
+const TAB_NAMES = [TAB_MODEL, TAB_GENERAL, TAB_PLUGINS, TAB_STORAGE]
 
 export function SettingsDialog() {
   const [open, toggleOpen] = useToggle(false)
@@ -103,10 +111,50 @@ export function SettingsDialog() {
     queryFn: getServerConfig,
   })
 
+  const [storage, setStorage] = useState<StorageInfo | undefined>(undefined)
+  const [storageBusy, setStorageBusy] = useState(false)
+
+  const refreshStorage = async () => {
+    try {
+      setStorage(await getStorageInfo())
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        description: e.message ? e.message : e.toString(),
+      })
+    }
+  }
+
+  useEffect(() => {
+    if (open && tab === TAB_STORAGE) {
+      refreshStorage()
+    }
+  }, [open, tab])
+
+  const onCleanup = async (targets: string[]) => {
+    setStorageBusy(true)
+    try {
+      const res = await cleanupStorage(targets)
+      toast({ description: `Freed ${res.freed_human}` })
+      res.errors.forEach((err) =>
+        toast({ variant: "destructive", description: err })
+      )
+      await refreshStorage()
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        description: e.message ? e.message : e.toString(),
+      })
+    } finally {
+      setStorageBusy(false)
+    }
+  }
+
   // 1. Define your form.
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      askBeforeSave: settings.askBeforeSave,
       enableDownloadMask: settings.enableDownloadMask,
       enableManualInpainting: settings.enableManualInpainting,
       enableUploadMask: settings.enableUploadMask,
@@ -131,6 +179,7 @@ export function SettingsDialog() {
   async function onSubmit(values: z.infer<typeof formSchema>) {
     // Do something with the form values. ✅ This will be type-safe and validated.
     updateSettings({
+      askBeforeSave: values.askBeforeSave,
       enableDownloadMask: values.enableDownloadMask,
       enableManualInpainting: values.enableManualInpainting,
       enableUploadMask: values.enableUploadMask,
@@ -391,6 +440,113 @@ export function SettingsDialog() {
             </ScrollArea>
           </Tabs>
         </div>
+      </div>
+    )
+  }
+
+  function renderStorageSettings() {
+    const cacheTargets = (storage?.items ?? [])
+      .filter((it) => it.safe_to_delete && it.name !== "outputs" && it.exists)
+      .map((it) => it.name)
+
+    return (
+      <div className="space-y-4 w-[510px]">
+        <FormField
+          control={form.control}
+          name="askBeforeSave"
+          render={({ field }) => (
+            <FormItem className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <FormLabel>Ask where to save</FormLabel>
+                <FormDescription>
+                  Open a "Save as" dialog (folder + file name) instead of
+                  silently writing the file. File names include the model or
+                  plugin that produced them, e.g.
+                  photo_removebg-isnet-general-use_v2.png
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch checked={field.value} onCheckedChange={field.onChange} />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
+        <Separator />
+
+        <div className="space-y-0.5">
+          <FormLabel>Disk usage</FormLabel>
+          <FormDescription>
+            Everything IOPaint downloaded or wrote. Models are re-downloaded
+            automatically when needed.
+          </FormDescription>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          {(storage?.items ?? []).map((item) => (
+            <div
+              key={item.name}
+              className="flex items-center justify-between gap-2 border rounded-md p-2"
+            >
+              <div className="overflow-hidden">
+                <div className="text-sm">
+                  {item.description} — {item.exists ? item.size_human : "empty"}
+                </div>
+                <div
+                  className="text-xs text-muted-foreground break-all cursor-pointer"
+                  title="Click to copy"
+                  onClick={() => {
+                    navigator.clipboard.writeText(item.path)
+                    toast({ description: "Path copied" })
+                  }}
+                >
+                  {item.path || "(not configured)"}
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={storageBusy || !item.exists || !item.safe_to_delete}
+                onClick={() => onCleanup([item.name])}
+              >
+                Delete
+              </Button>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="text-sm">
+            Total: {storage?.total_size_human ?? "-"}
+          </div>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={refreshStorage}
+              disabled={storageBusy}
+            >
+              Refresh
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              disabled={storageBusy || cacheTargets.length === 0}
+              onClick={() => onCleanup(cacheTargets)}
+            >
+              Delete all caches
+            </Button>
+          </div>
+        </div>
+
+        <FormDescription>
+          Same thing from a terminal: <code>iopaint paths</code> and{" "}
+          <code>iopaint clean --all</code>. To keep drive C: free, start IOPaint
+          with <code>--model-dir D:\IOPaintData</code>.
+        </FormDescription>
       </div>
     )
   }
@@ -744,6 +900,7 @@ export function SettingsDialog() {
                   {tab === TAB_MODEL ? renderModelSettings() : <></>}
                   {tab === TAB_GENERAL ? renderGeneralSettings() : <></>}
                   {tab === TAB_PLUGINS ? renderPluginsSettings() : <></>}
+                  {tab === TAB_STORAGE ? renderStorageSettings() : <></>}
                   {/* {tab === TAB_FILE_MANAGER ? (
                     renderFileManagerSettings()
                   ) : (

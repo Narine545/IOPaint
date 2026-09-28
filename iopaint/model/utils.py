@@ -9,20 +9,6 @@ import numpy as np
 import collections
 from itertools import repeat
 
-from diffusers import (
-    DDIMScheduler,
-    PNDMScheduler,
-    LMSDiscreteScheduler,
-    EulerDiscreteScheduler,
-    EulerAncestralDiscreteScheduler,
-    DPMSolverMultistepScheduler,
-    UniPCMultistepScheduler,
-    LCMScheduler,
-    DPMSolverSinglestepScheduler,
-    KDPM2DiscreteScheduler,
-    KDPM2AncestralDiscreteScheduler,
-    HeunDiscreteScheduler,
-)
 from loguru import logger
 
 from iopaint.schema import SDSampler
@@ -932,6 +918,23 @@ def set_seed(seed: int):
 
 
 def get_scheduler(sd_sampler, scheduler_config):
+    # diffusers is an optional dependency (only needed for diffusion models),
+    # import it lazily so that erase models work without it.
+    from diffusers import (
+        DDIMScheduler,
+        DPMSolverMultistepScheduler,
+        DPMSolverSinglestepScheduler,
+        EulerAncestralDiscreteScheduler,
+        EulerDiscreteScheduler,
+        HeunDiscreteScheduler,
+        KDPM2AncestralDiscreteScheduler,
+        KDPM2DiscreteScheduler,
+        LCMScheduler,
+        LMSDiscreteScheduler,
+        PNDMScheduler,
+        UniPCMultistepScheduler,
+    )
+
     # https://github.com/huggingface/diffusers/issues/4167
     keys_to_pop = ["use_karras_sigmas", "algorithm_type"]
     scheduler_config = dict(scheduler_config)

@@ -1,17 +1,19 @@
-torch>=2.0.0
-opencv-python
-diffusers==0.27.2
-huggingface_hub==0.25.2
-accelerate
-peft==0.7.1
-transformers>=4.39.1
+# Core dependencies: erase models (LaMa/MAT/MI-GAN/...), the web UI and the API.
+# Diffusion models and plugins are optional, see requirements-diffusion.txt and
+# requirements-plugins.txt (or `pip install "iopaint[diffusion,plugins]"`).
+torch>=2.1.0
+torchvision
+numpy>=1.24
+opencv-python>=4.8
+Pillow>=10.0.0
 safetensors
-controlnet-aux==0.0.3
-fastapi==0.108.0
-uvicorn
+huggingface_hub>=0.25.2
+fastapi>=0.110.0
+uvicorn>=0.27.0
 python-multipart
-python-socketio==5.7.2
-typer
+python-socketio>=5.11.0
+typer>=0.12.0
+typer-config>=1.4.0
 pydantic>=2.5.2
 rich
 loguru
@@ -19,7 +21,3 @@ yacs
 piexif==1.1.3
 omegaconf
 easydict
-gradio==4.21.0
-typer-config==1.4.0
-
-Pillow==9.5.0 # for AnyText

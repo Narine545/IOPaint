@@ -28,6 +28,50 @@
 |<video src="https://github.com/Sanster/IOPaint/assets/3998421/ffd4eda4-f7d4-4693-93d8-d2cd5aa7c6d6">|<video src="https://github.com/Sanster/IOPaint/assets/3998421/c4af8aef-8c29-49e0-96eb-0aae2f768da2">|
 
 
+---
+
+## 🇷🇺 Про этот форк (CPU / AMD APU edition)
+
+Форк `Sanster/IOPaint`, доработанный для работы **без дискретной видеокарты**
+(тестировалось на AMD Ryzen 7 5700G + Radeon Vega iGPU + 16 ГБ RAM).
+
+**Запуск в один клик (Windows):** склонировать репозиторий и запустить
+`IOPaint.bat` — он сам создаст окружение, поставит CPU-версию PyTorch,
+скачает модели и откроет браузер.
+Подробности: [`docs/RU_НАЧАЛО_РАБОТЫ.md`](docs/RU_НАЧАЛО_РАБОТЫ.md).
+
+Что добавлено к апстриму:
+
+* **Альфа-маттинг для удаления фона** (`none` / `fast` / `quality`) для
+  RemoveBG и AnimeSeg + удаление подмеса старого фона (color spill) —
+  никакой белой каймы при вырезании с белого фона;
+* **лёгкая установка без `diffusers`**: модели-стиратели и удаление фона
+  работают без 3+ ГБ диффузионных зависимостей (`pip install ".[plugins]"`);
+* **тюнинг CPU**: `--cpu-threads` с автоопределением физических ядер;
+* **DirectML**: `--remove-bg-device directml` — удаление фона на Radeon/Intel iGPU;
+* **пакетный режим**: `iopaint remove-bg --image ./in --output ./out`;
+* **нормальное сохранение**: расширение по реальной картинке (прозрачный
+  результат — всегда PNG), имя вида `photo_removebg-isnet-general-use_v2.png`,
+  диалог «Сохранить как» с выбором папки и защита от молчаливой перезаписи;
+* **контроль места на диске**: все кэши в одной папке, `iopaint paths` /
+  `iopaint clean`, вкладка **Files & Storage** в настройках,
+  `windows\show-paths.bat` и `windows\clean-cache.bat`;
+* `.bat`-скрипты установки, запуска и обновления в папке `windows/`;
+* обновлённые зависимости (Python 3.10–3.13, Pillow 10+, Pydantic 2.12+),
+  быстрые тесты без скачивания моделей и GitHub Actions.
+
+Разбор состояния апстрима и планы: [`docs/RU_СОСТОЯНИЕ_ПРОЕКТА.md`](docs/RU_СОСТОЯНИЕ_ПРОЕКТА.md).
+
+| Исходник → сырая маска → `fast` → `quality` |
+|---|
+| ![alpha matting, photo](docs/images/alpha_matting_photo.png) |
+| ![alpha matting, anime](docs/images/alpha_matting_anime.png) |
+
+<sub>Изображения для демонстрации сгенерированы нейросетью; маска здесь получена
+пороговой сегментацией, чтобы показать именно работу пост-обработки.</sub>
+
+---
+
 ## Features
 
 - Completely free and open-source, fully self-hosted, support CPU & GPU & Apple Silicon
@@ -71,6 +115,13 @@ You can install and start IOPaint easily by running following command:
 
 pip3 install iopaint
 iopaint start --model=lama --device=cpu --port=8080
+
+# this fork, light install from source (no diffusers, ~1.5GB instead of ~5GB)
+pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip3 install ".[plugins]"
+iopaint start --model=lama --device=cpu --port=8080 \
+  --enable-remove-bg --remove-bg-model=isnet-general-use \
+  --remove-bg-alpha-matting=fast
 ```
 
 That's it, you can start using IOPaint by visiting http://localhost:8080 in your web browser.
@@ -98,6 +149,13 @@ iopaint run --model=lama --device=cpu \
 --image=/path/to/image_folder \
 --mask=/path/to/mask_folder \
 --output=output_dir
+```
+
+Batch background removal (this fork):
+
+```bash
+iopaint remove-bg --image=/path/to/images --output=output_dir \
+--model=isnet-general-use --alpha-matting=quality
 ```
 
 `--image` is the folder containing input images, `--mask` is the folder containing corresponding mask images.
@@ -129,7 +187,9 @@ npm run dev
 
 Install back-end requirements and start backend service
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt            # core (erase models + web UI)
+pip install -r requirements-plugins.txt    # RemoveBG / alpha matting / upscalers
+pip install -r requirements-diffusion.txt  # optional: SD/SDXL/PowerPaint/AnyText
 python3 main.py start --model lama --port 8080
 ```
 

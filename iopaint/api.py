@@ -1,4 +1,5 @@
 import asyncio
+import io
 import os
 import threading
 import time
@@ -22,7 +23,7 @@ except:
 
 import uvicorn
 from PIL import Image
-from fastapi import APIRouter, FastAPI, Request, UploadFile
+from fastapi import APIRouter, FastAPI, Form, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -42,7 +43,16 @@ from iopaint.helper import (
     adjust_mask,
 )
 from iopaint.model.utils import torch_gc
+from iopaint.save_utils import (
+    build_filename,
+    build_infos,
+    image_ext_from_bytes,
+    resolve_save_path,
+)
+from iopaint.storage import cleanup as storage_cleanup
+from iopaint.storage import storage_paths
 from iopaint.model_manager import ModelManager
+from iopaint.accel import torch_device
 from iopaint.plugins import build_plugins, RealESRGANUpscaler, InteractiveSeg
 from iopaint.plugins.base_plugin import BasePlugin
 from iopaint.plugins.remove_bg import RemoveBG
@@ -61,6 +71,11 @@ from iopaint.schema import (
     ModelInfo,
     InteractiveSegModel,
     RealESRGANModel,
+    SaveImageResponse,
+    StorageCleanupRequest,
+    StorageCleanupResponse,
+    StorageItem,
+    StorageResponse,
 )
 
 CURRENT_DIR = Path(__file__).parent.absolute().resolve()
@@ -170,7 +185,9 @@ class Api:
         self.add_api_route("/api/v1/run_plugin_gen_image", self.api_run_plugin_gen_image, methods=["POST"])
         self.add_api_route("/api/v1/samplers", self.api_samplers, methods=["GET"])
         self.add_api_route("/api/v1/adjust_mask", self.api_adjust_mask, methods=["POST"])
-        self.add_api_route("/api/v1/save_image", self.api_save_image, methods=["POST"])
+        self.add_api_route("/api/v1/save_image", self.api_save_image, methods=["POST"], response_model=SaveImageResponse)
+        self.add_api_route("/api/v1/storage", self.api_storage, methods=["GET"], response_model=StorageResponse)
+        self.add_api_route("/api/v1/storage/cleanup", self.api_storage_cleanup, methods=["POST"], response_model=StorageCleanupResponse)
         self.app.mount("/", StaticFiles(directory=WEB_APP_DIR, html=True), name="assets")
         # fmt: on
 
@@ -183,24 +200,97 @@ class Api:
     def add_api_route(self, path: str, endpoint, **kwargs):
         return self.app.add_api_route(path, endpoint, **kwargs)
 
-    def api_save_image(self, file: UploadFile):
-        # Sanitize filename to prevent path traversal
-        safe_filename = Path(file.filename).name  # Get just the filename component
+    def api_save_image(
+        self,
+        file: UploadFile,
+        tool: str = Form(""),
+        version: int = Form(0),
+        policy: str = Form(""),
+    ) -> SaveImageResponse:
+        """Save a result into the output directory.
 
-        # Construct the full path within output_dir
-        output_path = self.config.output_dir / safe_filename
-
-        # Ensure output directory exists
-        if not self.config.output_dir or not self.config.output_dir.exists():
+        The extension follows the real image data (a transparent cutout is
+        always saved as PNG), the name records what produced it and, unless
+        the user explicitly asked for `overwrite`, an existing file is never
+        replaced silently.
+        """
+        if not self.config.output_dir:
             raise HTTPException(
                 status_code=400,
-                detail="Output directory not configured or doesn't exist",
+                detail="Output directory is not configured. Start IOPaint with "
+                "--output-dir, or use the browser 'Save as' dialog instead.",
             )
+        self.config.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Read and write the file
-        origin_image_bytes = file.file.read()
-        with open(output_path, "wb") as fw:
-            fw.write(origin_image_bytes)
+        image_bytes = file.file.read()
+        if not image_bytes:
+            raise HTTPException(status_code=400, detail="Empty file")
+
+        has_alpha = False
+        try:
+            with Image.open(io.BytesIO(image_bytes)) as im:
+                has_alpha = im.mode in ("RGBA", "LA") or "transparency" in im.info
+        except Exception:
+            raise HTTPException(status_code=400, detail="Not a valid image")
+
+        ext = image_ext_from_bytes(image_bytes, has_alpha=has_alpha)
+        filename = build_filename(
+            file.filename or "image",
+            tool=tool,
+            ext=ext,
+            version=version or None,
+        )
+        save_path, replaced = resolve_save_path(
+            self.config.output_dir, filename, policy or self.config.save_policy
+        )
+        save_path.write_bytes(image_bytes)
+        logger.info(f"Image saved: {save_path}")
+
+        return SaveImageResponse(
+            path=str(save_path),
+            directory=str(self.config.output_dir),
+            filename=save_path.name,
+            size=len(image_bytes),
+            replaced=replaced,
+        )
+
+    def plugin_model(self, plugin_name: str) -> str:
+        """Name of the model currently used by a plugin (for metadata)."""
+        if plugin_name == RemoveBG.name:
+            return str(self.config.remove_bg_model)
+        if plugin_name == RealESRGANUpscaler.name:
+            return str(self.config.realesrgan_model)
+        if plugin_name == InteractiveSeg.name:
+            return str(self.config.interactive_seg_model)
+        return plugin_name
+
+    def plugin_label(self, plugin_name: str) -> str:
+        """Short human/file friendly label, e.g. `removebg-isnet-general-use`."""
+        model = self.plugin_model(plugin_name)
+        if model and model != plugin_name:
+            return f"{plugin_name}-{model}"
+        return plugin_name
+
+    def api_storage(self) -> StorageResponse:
+        paths = storage_paths(self.config.model_dir, self.config.output_dir)
+        total = paths.pop("_total")
+        return StorageResponse(
+            data_dir=str(self.config.model_dir),
+            output_dir=str(self.config.output_dir) if self.config.output_dir else "",
+            save_policy=self.config.save_policy,
+            total_size=total["size"],
+            total_size_human=total["size_human"],
+            items=[StorageItem(**it) for it in paths.values()],
+        )
+
+    def api_storage_cleanup(self, req: StorageCleanupRequest) -> StorageCleanupResponse:
+        result = storage_cleanup(
+            self.config.model_dir,
+            req.targets,
+            output_dir=self.config.output_dir,
+            dry_run=req.dry_run,
+        )
+        return StorageCleanupResponse(**result)
 
     def api_current_model(self) -> ModelInfo:
         return self.model_manager.current_model
@@ -238,6 +328,7 @@ class Api:
             modelInfos=self.model_manager.scan_models(),
             removeBGModel=self.config.remove_bg_model,
             removeBGModels=RemoveBGModel.values(),
+            removeBGAlphaMatting=self.config.remove_bg_alpha_matting,
             realesrganModel=self.config.realesrgan_model,
             realesrganModels=RealESRGANModel.values(),
             interactiveSegModel=self.config.interactive_seg_model,
@@ -249,6 +340,9 @@ class Api:
             disableModelSwitch=False,
             isDesktop=False,
             samplers=self.api_samplers(),
+            savePolicy=self.config.save_policy,
+            outputDir=str(self.config.output_dir) if self.config.output_dir else "",
+            dataDir=str(self.config.model_dir),
         )
 
     def api_input_image(self) -> FileResponse:
@@ -288,6 +382,18 @@ class Api:
         rgb_np_img = cv2.cvtColor(rgb_np_img.astype(np.uint8), cv2.COLOR_BGR2RGB)
         rgb_res = concat_alpha_channel(rgb_np_img, alpha_channel)
 
+        if alpha_channel is not None and ext not in ("png", "webp"):
+            # never throw away transparency because the input happened to be jpg
+            logger.info(f"Image has an alpha channel, saving as png instead of {ext}")
+            ext = "png"
+
+        if self.config.save_metadata:
+            infos = build_infos(
+                infos,
+                tool=self.model_manager.name,
+                model=self.model_manager.name,
+            )
+
         res_img_bytes = pil_to_bytes(
             Image.fromarray(rgb_res),
             ext=ext,
@@ -300,7 +406,11 @@ class Api:
         return Response(
             content=res_img_bytes,
             media_type=f"image/{ext}",
-            headers={"X-Seed": str(req.sd_seed)},
+            headers={
+                "X-Seed": str(req.sd_seed),
+                "X-IOPaint-Tool": self.model_manager.name,
+                "Access-Control-Expose-Headers": "X-Seed, X-IOPaint-Tool",
+            },
         )
 
     def api_run_plugin_gen_image(self, req: RunPluginRequest):
@@ -321,6 +431,10 @@ class Api:
             rgba_np_img = cv2.cvtColor(bgr_or_rgba_np_img, cv2.COLOR_BGR2RGB)
             rgba_np_img = concat_alpha_channel(rgba_np_img, alpha_channel)
 
+        tool = self.plugin_label(req.name)
+        if self.config.save_metadata:
+            infos = build_infos(infos, tool=tool, model=self.plugin_model(req.name))
+
         return Response(
             content=pil_to_bytes(
                 Image.fromarray(rgba_np_img),
@@ -329,6 +443,10 @@ class Api:
                 infos=infos,
             ),
             media_type=f"image/{ext}",
+            headers={
+                "X-IOPaint-Tool": tool,
+                "Access-Control-Expose-Headers": "X-IOPaint-Tool",
+            },
         )
 
     def api_run_plugin_gen_mask(self, req: RunPluginRequest):
@@ -395,12 +513,18 @@ class Api:
             self.config.enable_restoreformer,
             self.config.restoreformer_device,
             self.config.no_half,
+            remove_bg_alpha_matting=self.config.remove_bg_alpha_matting,
+            remove_bg_fg_threshold=self.config.remove_bg_fg_threshold,
+            remove_bg_bg_threshold=self.config.remove_bg_bg_threshold,
+            remove_bg_erode_size=self.config.remove_bg_erode_size,
+            remove_bg_matting_max_size=self.config.remove_bg_matting_max_size,
+            remove_bg_remove_color_spill=self.config.remove_bg_remove_color_spill,
         )
 
     def _build_model_manager(self):
         return ModelManager(
             name=self.config.model,
-            device=torch.device(self.config.device),
+            device=torch_device(self.config.device),
             no_half=self.config.no_half,
             low_mem=self.config.low_mem,
             disable_nsfw=self.config.disable_nsfw_checker,
