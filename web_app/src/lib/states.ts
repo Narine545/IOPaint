@@ -580,7 +580,10 @@ export const useStore = createWithEqualityFn<AppState & AppAction>()(
             genMask,
             pluginName,
             targetFile,
-            params.upscale
+            params.upscale,
+            undefined,
+            params.alphaMatting,
+            params.removeColorSpill
           )
           const { blob } = res
 

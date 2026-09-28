@@ -9,4 +9,8 @@ dist/
 IOPaint.egg-info/
 venv/
 tmp/
-iopaint/web_app/
+
+# local Windows/Linux launcher venv
+.venv/
+image-search/
+tmp/

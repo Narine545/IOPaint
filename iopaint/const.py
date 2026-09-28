@@ -134,3 +134,29 @@ RESTOREFORMER_HELP = "Enable RestoreFormer face restore. To also enhance backgro
 GIF_HELP = "Enable GIF plugin. Make GIF to compare original and cleaned image"
 
 INBROWSER_HELP = "Automatically launch IOPaint in a new tab on the default browser"
+
+CPU_THREADS_HELP = """
+Number of CPU threads used for inference. 0 = auto detect physical cores
+(recommended). Using more threads than physical cores usually makes it slower.
+"""
+
+ALPHA_MATTING_HELP = """
+Refine the background-removal mask:
+'none'    - raw model mask (fastest);
+'fast'    - guided-filter refinement, soft and accurate edges, ~0.2s (recommended);
+'quality' - closed-form matting (pymatting), best for hair/fur, slower.
+"""
+
+ALPHA_MATTING_FG_THRESHOLD_HELP = "Pixels above this alpha value are considered pure foreground (0-255)."
+ALPHA_MATTING_BG_THRESHOLD_HELP = "Pixels below this alpha value are considered pure background (0-255)."
+ALPHA_MATTING_ERODE_SIZE_HELP = "Erode size used to build the trimap. Bigger = wider unknown/soft region."
+ALPHA_MATTING_MAX_SIZE_HELP = """
+Longest side (px) used for the 'quality' matting solve. The alpha is upsampled
+and re-sharpened afterwards. Lower it if you run out of RAM, raise it for more
+detail. 1280 is a good value for 16GB of RAM.
+"""
+REMOVE_COLOR_SPILL_HELP = """
+Remove the old background colour from semi-transparent edge pixels. Strongly
+recommended when cutting a subject out of a white/bright background, it kills
+the white halo.
+"""

@@ -166,10 +166,19 @@ class RemoveBGModel(Choices):
     birefnet_massive = "birefnet-massive"
 
 
+class AlphaMattingMethod(Choices):
+    none = "none"
+    fast = "fast"
+    quality = "quality"
+
+
 class Device(Choices):
     cpu = "cpu"
     cuda = "cuda"
     mps = "mps"
+    # DirectML: runs ONNX/torch models on any DirectX 12 GPU (AMD/Intel iGPU
+    # included) on Windows. Requires onnxruntime-directml / torch-directml.
+    directml = "directml"
 
 
 class InteractiveSegModel(Choices):
@@ -272,6 +281,12 @@ class ApiConfig(BaseModel):
     enable_remove_bg: bool
     remove_bg_device: Device
     remove_bg_model: str
+    remove_bg_alpha_matting: AlphaMattingMethod = AlphaMattingMethod.none
+    remove_bg_fg_threshold: int = 240
+    remove_bg_bg_threshold: int = 15
+    remove_bg_erode_size: int = 8
+    remove_bg_matting_max_size: int = 1280
+    remove_bg_remove_color_spill: bool = True
     enable_anime_seg: bool
     enable_realesrgan: bool
     realesrgan_device: Device
@@ -419,7 +434,8 @@ class InpaintRequest(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_field(cls, values: "InpaintRequest"):
+    def validate_field(self) -> "InpaintRequest":
+        values = self
         if values.sd_seed == -1:
             values.sd_seed = random.randint(1, 99999999)
             logger.info(f"Generate random seed: {values.sd_seed}")
@@ -456,6 +472,24 @@ class RunPluginRequest(BaseModel):
     )
     scale: float = Field(2.0, description="Scale for upscaling")
 
+    # Background removal / alpha matting overrides. None means "use the value
+    # the server was started with".
+    alpha_matting: Optional[AlphaMattingMethod] = Field(
+        None, description="Alpha matting method: none/fast/quality"
+    )
+    fg_threshold: Optional[int] = Field(
+        None, ge=0, le=255, description="Alpha matting foreground threshold"
+    )
+    bg_threshold: Optional[int] = Field(
+        None, ge=0, le=255, description="Alpha matting background threshold"
+    )
+    erode_size: Optional[int] = Field(
+        None, ge=0, le=64, description="Alpha matting trimap erode size"
+    )
+    remove_color_spill: Optional[bool] = Field(
+        None, description="Remove the old background colour from soft edges"
+    )
+
 
 MediaTab = Literal["input", "output", "mask"]
 
@@ -478,6 +512,8 @@ class ServerConfigResponse(BaseModel):
     modelInfos: List[ModelInfo]
     removeBGModel: RemoveBGModel
     removeBGModels: List[RemoveBGModel]
+    removeBGAlphaMatting: AlphaMattingMethod = AlphaMattingMethod.none
+    alphaMattingMethods: List[str] = Field(default_factory=AlphaMattingMethod.values)
     realesrganModel: RealESRGANModel
     realesrganModels: List[RealESRGANModel]
     interactiveSegModel: InteractiveSegModel

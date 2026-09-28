@@ -31,6 +31,9 @@ _CANDIDATES = [
     "iopaint",
     "rembg",
     "onnxruntime",
+    "onnxruntime-directml",
+    "pymatting",
+    "torch-directml",
 ]
 # Check once at runtime
 for name in _CANDIDATES:
@@ -67,6 +70,23 @@ def check_device(device: Device) -> Device:
             if not torch.cuda.is_available():
                 logger.warning("CUDA is not available, use cpu instead")
                 return Device.cpu
+    elif device == Device.directml:
+        from iopaint.accel import (
+            is_onnx_directml_available,
+            is_torch_directml_available,
+        )
+
+        if platform.system() != "Windows":
+            logger.warning("DirectML is only supported on Windows, use cpu instead")
+            return Device.cpu
+        if not (is_onnx_directml_available() or is_torch_directml_available()):
+            logger.warning(
+                "DirectML is not available. Install it with "
+                "`iopaint install-plugins-packages --directml` (ONNX models) "
+                "and/or `pip install torch-directml` (torch models). Using cpu."
+            )
+            return Device.cpu
+        return device
     elif device == Device.mps:
         import torch
 

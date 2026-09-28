@@ -66,8 +66,11 @@ def draw_glyph(font, text):
     ratio = min(W * 0.9 / text_width, H * 0.9 / text_height)
     new_font = font.font_variant(size=int(g_size * ratio))
 
-    text_width, text_height = new_font.getsize(text)
-    offset_x, offset_y = new_font.getoffset(text)
+    # Pillow >= 10 removed Font.getsize()/getoffset(), getbbox() gives both:
+    # getsize() == (right, bottom), getoffset() == (left, top)
+    left, top, right, bottom = new_font.getbbox(text)
+    text_width, text_height = right, bottom
+    offset_x, offset_y = left, top
     x = (img.width - text_width) // 2
     y = (img.height - text_height) // 2 - offset_y // 2
     draw.text((x, y), text, font=new_font, fill="white")

@@ -1,5 +1,4 @@
 import base64
-import imghdr
 import io
 import os
 import sys
@@ -297,11 +296,26 @@ def is_mac():
     return sys.platform == "darwin"
 
 
-def get_image_ext(img_bytes):
-    w = imghdr.what("", img_bytes)
-    if w is None:
-        w = "jpeg"
-    return w
+# `imghdr` was removed in Python 3.13, detect the format from the magic bytes.
+_IMAGE_SIGNATURES = (
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"\xff\xd8\xff", "jpeg"),
+    (b"GIF87a", "gif"),
+    (b"GIF89a", "gif"),
+    (b"BM", "bmp"),
+    (b"II*\x00", "tiff"),
+    (b"MM\x00*", "tiff"),
+)
+
+
+def get_image_ext(img_bytes) -> str:
+    header = bytes(img_bytes[:16])
+    for signature, ext in _IMAGE_SIGNATURES:
+        if header.startswith(signature):
+            return ext
+    if header[:4] == b"RIFF" and header[8:12] == b"WEBP":
+        return "webp"
+    return "jpeg"
 
 
 def decode_base64_to_image(

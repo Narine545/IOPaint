@@ -11,16 +11,28 @@ from typer_config import use_json_config
 
 from iopaint.const import *
 from iopaint.runtime import setup_model_dir, dump_environment_info, check_device
-from iopaint.schema import InteractiveSegModel, Device, RealESRGANModel, RemoveBGModel
+from iopaint.schema import (
+    AlphaMattingMethod,
+    Device,
+    InteractiveSegModel,
+    RealESRGANModel,
+    RemoveBGModel,
+)
 
 typer_app = typer.Typer(pretty_exceptions_show_locals=False, add_completion=False)
 
 
 @typer_app.command(help="Install all plugins dependencies")
-def install_plugins_packages():
+def install_plugins_packages(
+    directml: bool = Option(
+        False,
+        help="Install the DirectML build of onnxruntime (Windows only). "
+        "Lets AMD/Intel iGPUs run the background-removal models.",
+    ),
+):
     from iopaint.installer import install_plugins_package
 
-    install_plugins_package()
+    install_plugins_package(directml=directml)
 
 
 @typer_app.command(help="Download SD/SDXL normal/inpainting model from HuggingFace")
@@ -94,6 +106,61 @@ def run(
     batch_inpaint(model, device, image, mask, output, config, concat)
 
 
+@typer_app.command(
+    name="remove-bg", help="Batch remove image background (writes transparent PNGs)"
+)
+def remove_bg(
+    image: Path = Option(..., help="Image folder or file path"),
+    output: Path = Option(..., help="Output directory"),
+    model: RemoveBGModel = Option(
+        RemoveBGModel.isnet_general_use,
+        help="Background removal model. isnet-general-use is a good default for "
+        "real photos, briaai/RMBG-1.4 is a strong all-rounder.",
+    ),
+    device: Device = Option(Device.cpu),
+    anime: bool = Option(
+        False, help="Use the anime segmentation model instead (for illustrations)"
+    ),
+    alpha_matting: AlphaMattingMethod = Option(
+        AlphaMattingMethod.fast, help=ALPHA_MATTING_HELP
+    ),
+    fg_threshold: int = Option(240, help=ALPHA_MATTING_FG_THRESHOLD_HELP),
+    bg_threshold: int = Option(15, help=ALPHA_MATTING_BG_THRESHOLD_HELP),
+    erode_size: int = Option(8, help=ALPHA_MATTING_ERODE_SIZE_HELP),
+    matting_max_size: int = Option(1280, help=ALPHA_MATTING_MAX_SIZE_HELP),
+    remove_color_spill: bool = Option(True, help=REMOVE_COLOR_SPILL_HELP),
+    save_mask: bool = Option(False, help="Save the mask instead of the cutout"),
+    cpu_threads: int = Option(0, help=CPU_THREADS_HELP),
+    model_dir: Path = Option(
+        DEFAULT_MODEL_DIR,
+        help=MODEL_DIR_HELP,
+        file_okay=False,
+        callback=setup_model_dir,
+    ),
+):
+    from iopaint.accel import apply_torch_cpu_tuning
+
+    apply_torch_cpu_tuning(cpu_threads)
+    device = check_device(device)
+
+    from iopaint.batch_remove_bg import batch_remove_bg
+
+    batch_remove_bg(
+        image=image,
+        output=output,
+        model=model.value,
+        device=device.value,
+        alpha_matting=alpha_matting.value,
+        fg_threshold=fg_threshold,
+        bg_threshold=bg_threshold,
+        erode_size=erode_size,
+        matting_max_size=matting_max_size,
+        remove_color_spill=remove_color_spill,
+        save_mask=save_mask,
+        anime=anime,
+    )
+
+
 @typer_app.command(help="Start IOPaint server")
 @use_json_config()
 def start(
@@ -132,9 +199,18 @@ def start(
         InteractiveSegModel.sam2_1_tiny, help=INTERACTIVE_SEG_MODEL_HELP
     ),
     interactive_seg_device: Device = Option(Device.cpu),
+    cpu_threads: int = Option(0, help=CPU_THREADS_HELP),
     enable_remove_bg: bool = Option(False, help=REMOVE_BG_HELP),
     remove_bg_device: Device = Option(Device.cpu, help=REMOVE_BG_DEVICE_HELP),
     remove_bg_model: RemoveBGModel = Option(RemoveBGModel.briaai_rmbg_1_4),
+    remove_bg_alpha_matting: AlphaMattingMethod = Option(
+        AlphaMattingMethod.none, help=ALPHA_MATTING_HELP
+    ),
+    remove_bg_fg_threshold: int = Option(240, help=ALPHA_MATTING_FG_THRESHOLD_HELP),
+    remove_bg_bg_threshold: int = Option(15, help=ALPHA_MATTING_BG_THRESHOLD_HELP),
+    remove_bg_erode_size: int = Option(8, help=ALPHA_MATTING_ERODE_SIZE_HELP),
+    remove_bg_matting_max_size: int = Option(1280, help=ALPHA_MATTING_MAX_SIZE_HELP),
+    remove_bg_remove_color_spill: bool = Option(True, help=REMOVE_COLOR_SPILL_HELP),
     enable_anime_seg: bool = Option(False, help=ANIMESEG_HELP),
     enable_realesrgan: bool = Option(False),
     realesrgan_device: Device = Option(Device.cpu),
@@ -144,7 +220,11 @@ def start(
     enable_restoreformer: bool = Option(False),
     restoreformer_device: Device = Option(Device.cpu),
 ):
+    from iopaint.accel import apply_torch_cpu_tuning, describe_acceleration
+
+    apply_torch_cpu_tuning(cpu_threads)
     dump_environment_info()
+    logger.info(f"Acceleration: {describe_acceleration()}")
     device = check_device(device)
     remove_bg_device = check_device(remove_bg_device)
     realesrgan_device = check_device(realesrgan_device)
@@ -216,6 +296,12 @@ def start(
         enable_remove_bg=enable_remove_bg,
         remove_bg_device=remove_bg_device,
         remove_bg_model=remove_bg_model,
+        remove_bg_alpha_matting=remove_bg_alpha_matting,
+        remove_bg_fg_threshold=remove_bg_fg_threshold,
+        remove_bg_bg_threshold=remove_bg_bg_threshold,
+        remove_bg_erode_size=remove_bg_erode_size,
+        remove_bg_matting_max_size=remove_bg_matting_max_size,
+        remove_bg_remove_color_spill=remove_bg_remove_color_spill,
         enable_anime_seg=enable_anime_seg,
         enable_realesrgan=enable_realesrgan,
         realesrgan_device=realesrgan_device,

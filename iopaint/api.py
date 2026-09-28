@@ -43,6 +43,7 @@ from iopaint.helper import (
 )
 from iopaint.model.utils import torch_gc
 from iopaint.model_manager import ModelManager
+from iopaint.accel import torch_device
 from iopaint.plugins import build_plugins, RealESRGANUpscaler, InteractiveSeg
 from iopaint.plugins.base_plugin import BasePlugin
 from iopaint.plugins.remove_bg import RemoveBG
@@ -238,6 +239,7 @@ class Api:
             modelInfos=self.model_manager.scan_models(),
             removeBGModel=self.config.remove_bg_model,
             removeBGModels=RemoveBGModel.values(),
+            removeBGAlphaMatting=self.config.remove_bg_alpha_matting,
             realesrganModel=self.config.realesrgan_model,
             realesrganModels=RealESRGANModel.values(),
             interactiveSegModel=self.config.interactive_seg_model,
@@ -395,12 +397,18 @@ class Api:
             self.config.enable_restoreformer,
             self.config.restoreformer_device,
             self.config.no_half,
+            remove_bg_alpha_matting=self.config.remove_bg_alpha_matting,
+            remove_bg_fg_threshold=self.config.remove_bg_fg_threshold,
+            remove_bg_bg_threshold=self.config.remove_bg_bg_threshold,
+            remove_bg_erode_size=self.config.remove_bg_erode_size,
+            remove_bg_matting_max_size=self.config.remove_bg_matting_max_size,
+            remove_bg_remove_color_spill=self.config.remove_bg_remove_color_spill,
         )
 
     def _build_model_manager(self):
         return ModelManager(
             name=self.config.model,
-            device=torch.device(self.config.device),
+            device=torch_device(self.config.device),
             no_half=self.config.no_half,
             low_mem=self.config.low_mem,
             disable_nsfw=self.config.disable_nsfw_checker,

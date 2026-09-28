@@ -20,10 +20,10 @@ from iopaint.model.original_sd_configs import get_config_files
 
 
 def cli_download_model(model: str):
-    from iopaint.model import models
+    from iopaint.model import erase_models, models
     from iopaint.model.utils import handle_from_pretrained_exceptions
 
-    if model in models and models[model].is_erase_model:
+    if model in erase_models and erase_models[model].is_erase_model:
         logger.info(f"Downloading {model}...")
         models[model].download()
         logger.info("Done.")
@@ -181,11 +181,13 @@ def scan_single_file_diffusion_models(cache_dir) -> List[ModelInfo]:
 
 def scan_inpaint_models(model_dir: Path) -> List[ModelInfo]:
     res = []
-    from iopaint.model import models
+    # only erase models can be scanned locally, and importing them does not
+    # pull in the (optional) diffusion dependencies
+    from iopaint.model import erase_models
 
     # logger.info(f"Scanning inpaint models in {model_dir}")
 
-    for name, m in models.items():
+    for name, m in erase_models.items():
         if m.is_erase_model and m.is_downloaded():
             res.append(
                 ModelInfo(

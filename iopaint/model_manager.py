@@ -6,10 +6,7 @@ import numpy as np
 
 from iopaint.download import scan_models
 from iopaint.helper import switch_mps_device
-from iopaint.model import models, ControlNet, SD, SDXL
-from iopaint.model.brushnet.brushnet_wrapper import BrushNetWrapper
-from iopaint.model.brushnet.brushnet_xl_wrapper import BrushNetXLWrapper
-from iopaint.model.power_paint.power_paint_v2 import PowerPaintV2
+from iopaint.model import models
 from iopaint.model.utils import torch_gc, is_local_files_only
 from iopaint.schema import InpaintRequest, ModelInfo, ModelType
 
@@ -61,15 +58,25 @@ class ModelManager:
         }
 
         if model_info.support_controlnet and self.enable_controlnet:
+            from iopaint.model import ControlNet
+
             return ControlNet(device, **kwargs)
 
         if model_info.support_brushnet and self.enable_brushnet:
             if model_info.model_type == ModelType.DIFFUSERS_SD:
+                from iopaint.model.brushnet.brushnet_wrapper import BrushNetWrapper
+
                 return BrushNetWrapper(device, **kwargs)
             elif model_info.model_type == ModelType.DIFFUSERS_SDXL:
+                from iopaint.model.brushnet.brushnet_xl_wrapper import (
+                    BrushNetXLWrapper,
+                )
+
                 return BrushNetXLWrapper(device, **kwargs)
 
         if model_info.support_powerpaint_v2 and self.enable_powerpaint_v2:
+            from iopaint.model.power_paint.power_paint_v2 import PowerPaintV2
+
             return PowerPaintV2(device, **kwargs)
 
         if model_info.name in models:
@@ -79,12 +86,16 @@ class ModelManager:
             ModelType.DIFFUSERS_SD_INPAINT,
             ModelType.DIFFUSERS_SD,
         ]:
+            from iopaint.model import SD
+
             return SD(device, **kwargs)
 
         if model_info.model_type in [
             ModelType.DIFFUSERS_SDXL_INPAINT,
             ModelType.DIFFUSERS_SDXL,
         ]:
+            from iopaint.model import SDXL
+
             return SDXL(device, **kwargs)
 
         raise NotImplementedError(f"Unsupported model: {name}")

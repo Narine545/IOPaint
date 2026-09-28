@@ -6,8 +6,16 @@ import numpy as np
 from PIL import Image
 
 from iopaint.helper import load_model
+from iopaint.plugins.alpha_matting import (
+    DEFAULT_BACKGROUND_THRESHOLD,
+    DEFAULT_ERODE_SIZE,
+    DEFAULT_FOREGROUND_THRESHOLD,
+    DEFAULT_MAX_SIZE,
+    cutout,
+    refine_alpha,
+)
 from iopaint.plugins.base_plugin import BasePlugin
-from iopaint.schema import RunPluginRequest
+from iopaint.schema import AlphaMattingMethod, RunPluginRequest
 
 
 class REBNCONV(nn.Module):
@@ -419,7 +427,15 @@ class AnimeSeg(BasePlugin):
     support_gen_image = True
     support_gen_mask = True
 
-    def __init__(self):
+    def __init__(
+        self,
+        alpha_matting: str = AlphaMattingMethod.none,
+        fg_threshold: int = DEFAULT_FOREGROUND_THRESHOLD,
+        bg_threshold: int = DEFAULT_BACKGROUND_THRESHOLD,
+        erode_size: int = DEFAULT_ERODE_SIZE,
+        matting_max_size: int = DEFAULT_MAX_SIZE,
+        remove_color_spill: bool = True,
+    ):
         super().__init__()
         self.model = load_model(
             ISNetDIS(),
@@ -427,18 +443,45 @@ class AnimeSeg(BasePlugin):
             "cpu",
             ANIME_SEG_MODELS["md5"],
         )
+        self.alpha_matting = str(getattr(alpha_matting, "value", alpha_matting))
+        self.fg_threshold = fg_threshold
+        self.bg_threshold = bg_threshold
+        self.erode_size = erode_size
+        self.matting_max_size = matting_max_size
+        self.remove_color_spill = remove_color_spill
+
+    def _refine(self, rgb_np_img, mask, req: RunPluginRequest) -> np.ndarray:
+        method = req.alpha_matting if req.alpha_matting is not None else self.alpha_matting
+        method = str(getattr(method, "value", method))
+        if method == AlphaMattingMethod.none:
+            return mask
+        return refine_alpha(
+            rgb_np_img,
+            mask,
+            method=method,
+            foreground_threshold=(
+                self.fg_threshold if req.fg_threshold is None else req.fg_threshold
+            ),
+            background_threshold=(
+                self.bg_threshold if req.bg_threshold is None else req.bg_threshold
+            ),
+            erode_size=(
+                self.erode_size if req.erode_size is None else req.erode_size
+            ),
+            max_size=self.matting_max_size,
+        )
 
     def gen_image(self, rgb_np_img, req: RunPluginRequest) -> np.ndarray:
-        mask = self.forward(rgb_np_img)
-        mask = Image.fromarray(mask, mode="L")
-        h0, w0 = rgb_np_img.shape[0], rgb_np_img.shape[1]
-        empty = Image.new("RGBA", (w0, h0), 0)
-        img = Image.fromarray(rgb_np_img)
-        cutout = Image.composite(img, empty, mask)
-        return np.asarray(cutout)
+        mask = self._refine(rgb_np_img, self.forward(rgb_np_img), req)
+        remove_color_spill = (
+            self.remove_color_spill
+            if req.remove_color_spill is None
+            else req.remove_color_spill
+        )
+        return cutout(rgb_np_img, mask, remove_color_spill=remove_color_spill)
 
     def gen_mask(self, rgb_np_img, req: RunPluginRequest) -> np.ndarray:
-        return self.forward(rgb_np_img)
+        return self._refine(rgb_np_img, self.forward(rgb_np_img), req)
 
     @torch.inference_mode()
     def forward(self, rgb_np_img):

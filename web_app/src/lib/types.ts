@@ -66,8 +66,16 @@ export enum PluginName {
   InteractiveSeg = "InteractiveSeg",
 }
 
+export enum AlphaMattingMethod {
+  NONE = "none",
+  FAST = "fast",
+  QUALITY = "quality",
+}
+
 export interface PluginParams {
   upscale: number
+  alphaMatting?: AlphaMattingMethod
+  removeColorSpill?: boolean
 }
 
 export enum SortBy {

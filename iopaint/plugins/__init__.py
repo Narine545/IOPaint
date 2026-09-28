@@ -8,7 +8,12 @@ from .interactive_seg import InteractiveSeg
 from .realesrgan import RealESRGANUpscaler
 from .remove_bg import RemoveBG
 from .restoreformer import RestoreFormerPlugin
-from ..schema import InteractiveSegModel, Device, RealESRGANModel
+from ..schema import (
+    AlphaMattingMethod,
+    Device,
+    InteractiveSegModel,
+    RealESRGANModel,
+)
 
 
 def build_plugins(
@@ -27,6 +32,12 @@ def build_plugins(
     enable_restoreformer: bool,
     restoreformer_device: Device,
     no_half: bool,
+    remove_bg_alpha_matting: str = AlphaMattingMethod.none,
+    remove_bg_fg_threshold: int = 240,
+    remove_bg_bg_threshold: int = 15,
+    remove_bg_erode_size: int = 8,
+    remove_bg_matting_max_size: int = 1280,
+    remove_bg_remove_color_spill: bool = True,
 ) -> Dict:
     plugins = {}
     if enable_interactive_seg:
@@ -37,11 +48,27 @@ def build_plugins(
 
     if enable_remove_bg:
         logger.info(f"Initialize {RemoveBG.name} plugin")
-        plugins[RemoveBG.name] = RemoveBG(remove_bg_model, remove_bg_device)
+        plugins[RemoveBG.name] = RemoveBG(
+            remove_bg_model,
+            remove_bg_device,
+            alpha_matting=remove_bg_alpha_matting,
+            fg_threshold=remove_bg_fg_threshold,
+            bg_threshold=remove_bg_bg_threshold,
+            erode_size=remove_bg_erode_size,
+            matting_max_size=remove_bg_matting_max_size,
+            remove_color_spill=remove_bg_remove_color_spill,
+        )
 
     if enable_anime_seg:
         logger.info(f"Initialize {AnimeSeg.name} plugin")
-        plugins[AnimeSeg.name] = AnimeSeg()
+        plugins[AnimeSeg.name] = AnimeSeg(
+            alpha_matting=remove_bg_alpha_matting,
+            fg_threshold=remove_bg_fg_threshold,
+            bg_threshold=remove_bg_bg_threshold,
+            erode_size=remove_bg_erode_size,
+            matting_max_size=remove_bg_matting_max_size,
+            remove_color_spill=remove_bg_remove_color_spill,
+        )
 
     if enable_realesrgan:
         logger.info(
